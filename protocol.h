@@ -1,6 +1,8 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
+#define MAX_LINE 4096
+
 #include <stddef.h>
 
 int send_all(int fd, const char *buf, size_t len);

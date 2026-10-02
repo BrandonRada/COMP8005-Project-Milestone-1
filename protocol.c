@@ -12,7 +12,7 @@ int send_all(int fd, const char *buf, size_t len) {
 
 		if (n <= 0) {
 			return -1;
- 		}
+		}
 		total += n;
 	}
 
@@ -33,10 +33,10 @@ int recv_line(int fd, char *buf, size_t max_len) {
 
 		if (n <= 0){
 			return -1;
- 		}
+		}
 
 		buf[pos++] = c;
- 
+
 		if (c == '\n'){
 			break;
 		}
