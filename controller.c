@@ -101,7 +101,7 @@ static int parse_args(int argc, char *argv[], ControllerConfig *cfg) {
 				return -1;
 			}
 			
-			strncpy(cfg->password, argv[i++], sizeof(cfg->password) - 1);
+			strncpy(cfg->password, argv[++i], sizeof(cfg->password) - 1);
 			
 			cfg->password[sizeof(cfg->password) - 1] = '\0';
 			
@@ -114,7 +114,7 @@ static int parse_args(int argc, char *argv[], ControllerConfig *cfg) {
 				return -1;
 			}
 			
-			strncpy(cfg->charset_file, argv[i++], sizeof(cfg->charset_file) - 1);
+			strncpy(cfg->charset_file, argv[++i], sizeof(cfg->charset_file) - 1);
 			
 			cfg->charset_file[sizeof(cfg->charset_file) - 1] = '\0';
 			
@@ -170,6 +170,7 @@ static int load_charset(const char *path, char *charset, size_t *charset_size) {
 	
 	if (fp == NULL) {
 		perror("fopen charset");
+		printf("DEBUG: Entered Path [%s]\n", path);
 		return -1;
 	}
 	
