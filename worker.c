@@ -6,8 +6,21 @@
 
 #include "protocol.h"
 
-int main(void)
-{
+#define MAX_LINE 4096
+#define MAX_ID 64
+
+typedef struct {
+    char host[64];
+    int port;
+    char worker_id[MAX_ID];
+    int heartbeat_ms;
+} WorkerConfig;
+
+
+int main(void) {
+
+    int parse_args(int argc, char *argv[], WorkerConfig *cfg);
+
     int fd = socket(AF_INET, SOCK_STREAM, 0);
 
     struct sockaddr_in server;
@@ -20,6 +33,8 @@ int main(void)
     inet_pton(AF_INET, "127.0.0.1", &server.sin_addr);
 
     connect(fd, (struct sockaddr *)&server, sizeof(server));
+
+    printf("Connecting to %s:%d\n", "127.0.0.1", 9000);
 
     char line[MAX_LINE];
 
