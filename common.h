@@ -6,6 +6,8 @@
 
 #define MAX_LINE 4096
 #define MAX_ID 64
+#define MAX_PASSWORD_LEN 127
+#define MAX_CHARSET 256
 
 typedef enum {
 	IDLE,

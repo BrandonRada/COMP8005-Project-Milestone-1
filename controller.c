@@ -17,8 +17,7 @@
 #include "common.h"
 
 #define HASH_SETTING "$6$rounds=5000$comp8005$"
-#define MAX_PASSWORD_LEN 127
-#define MAX_CHARSET 256
+//#define MAX_PASSWORD_LEN 127
 
 typedef struct {
     int port;
@@ -49,7 +48,7 @@ static uint64_t now_ms(void) {
 	return ((uint64_t)ts.tv_sec * 1000ULL) + ((uint64_t)ts.tv_nsec / 1000000ULL);
 }
 
-// Prints some help/command line usage
+// Prints some help/command line usage for Controller program
 static void usage(const char *program) {
 	printf(
 		"Usage:\n"
@@ -74,7 +73,7 @@ static int parse_args(int argc, char *argv[], ControllerConfig *cfg) {
 	
 	memset(cfg, 0, sizeof(*cfg));
 	
-	for (int i = 1; i < argc; i++) {
+	for (int i = 1; i < argc; ++i) {
 		if (strcmp(argv[i], "--help") == 0) {
 			usage(argv[0]);
 			exit(0);
@@ -161,6 +160,7 @@ static int parse_args(int argc, char *argv[], ControllerConfig *cfg) {
 	return 0;
 }
 
+// Load the charset from the input filepath
 static int load_charset(const char *path, char *charset, size_t *charset_size) {
 	if (path == NULL || charset == NULL || charset_size == NULL) {
 		return -1;
