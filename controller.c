@@ -752,7 +752,10 @@ int main(int argc, char *argv[]) {
 					
 					snprintf(complete, sizeof(complete), "COMPLETE task=%d accepted=yes reason=%s\n", task.task_id, reason);
 					
+					printf("SEND %s", complete);
+					
 					send_line(worker_fd, complete);
+					
 				} else {
 					printf(
 						"seq=%02" PRIu64
@@ -768,6 +771,7 @@ int main(int argc, char *argv[]) {
 					char complete[MAX_LINE];
 					
 					snprintf(complete, sizeof(complete), "COMPLETE task=%d accepted=no reason=%s\n", task.task_id, reason);
+					printf("SEND %s", complete);
 					
 					send_line(worker_fd, complete);
 				}
