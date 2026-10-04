@@ -33,7 +33,7 @@ int send_line(int fd, const char *line) {
 	return send_all(fd, line, strlen(line));
 }
 
-// Recieve one line protocol message, reading a byte at a time until new line is recieved or the buffer is full
+// Receive one line protocol message, reading a byte at a time until new line is recieved or the buffer is full
 int recv_line(int fd, char *buf, size_t max_len) {
 	if (buf == NULL || max_len < 2) {
 		return -1;
