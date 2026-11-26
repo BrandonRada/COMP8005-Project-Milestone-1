@@ -17,6 +17,9 @@ typedef enum {
 
 typedef struct {
 	char worker_id[MAX_ID];
+	char lease_id[MAX_ID];
+	
+	int fd;
 
 	worker_state_t state;
 

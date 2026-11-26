@@ -1,8 +1,8 @@
 CC=gcc
 
-CFLAGS=-Wall -Wextra -std=c11
+CFLAGS=-Wall -Wextra -std=c11 -pthread
 
-LIBS=-lcrypt
+LIBS=-lcrypt -pthread
 
 build: controller worker
 
