@@ -26,6 +26,7 @@ typedef struct {
     char charset_file[MAX_CHARSET];
     int timeout_ms;
     int worker_count;
+    int show_adaptive_lease;
 } ControllerConfig;
 
 typedef enum {
@@ -62,7 +63,7 @@ typedef struct {
 } LeaseHistory;
 
 static const char *task_state_name(task_state_t state);
-static uint64_t calculate_lease_duration(const TaskInfo *task, const LeaseHistory *history);
+static uint64_t calculate_lease_duration(const TaskInfo *task, const LeaseHistory *history, int show_adaptive_lease);
 
 // REturn the time in milliseconds
 static uint64_t now_ms(void) {
@@ -88,7 +89,8 @@ static void usage(const char *program) {
         	"  --charset-file <path>      ordered charset file\n"
         	"  --timeout-ms <ms>          heartbeat timeout\n"
         	"  --workers <count>          number of Workers\n"
-        	"  --help                     show this help\n",
+        	"  --help                     show this help\n"
+        	"  --show-adaptive-lease     Show adaptive lease calculations\n",
         	program
 	);
 }
@@ -177,6 +179,12 @@ static int parse_args(int argc, char *argv[], ControllerConfig *cfg) {
 			}
 			continue;
 		}
+		
+		if (strcmp(argv[i], "--show-adaptive-lease") == 0) {
+			cfg->show_adaptive_lease = 1;
+			continue;
+		}
+		
 		fprintf(stderr, "Unknown option: %s\n", argv[i]);
 		return -1;
 	}
@@ -535,7 +543,7 @@ static int all_tasks_complete(TaskInfo *tasks, size_t task_count) {
 	return 1;
 }
 
-static int assign_task(WorkerInfo *worker, TaskInfo *task, const char *target_hash, const LeaseHistory *history) {
+static int assign_task(WorkerInfo *worker, TaskInfo *task, const char *target_hash, const LeaseHistory *history, int show_adaptive_lease) {
 	if (worker == NULL || task == NULL || target_hash == NULL || worker->fd < 0 || task->state != TASK_PENDING) {
 		return -1;
 	}
@@ -543,7 +551,7 @@ static int assign_task(WorkerInfo *worker, TaskInfo *task, const char *target_ha
 	generate_lease_id(task);
 	
 	uint64_t assigned_time = now_ms();
-	uint64_t lease_duration = calculate_lease_duration(task, history);
+	uint64_t lease_duration = calculate_lease_duration(task, history, show_adaptive_lease);
 	
 	task->state = TASK_LEASED;
 	task->assigned_at_ms = assigned_time;
@@ -657,7 +665,7 @@ static int register_workers(int listen_fd, WorkerInfo *workers, int worker_count
 	return 0;
 }
 
-static void assign_available_tasks(WorkerInfo *workers, int worker_count, TaskInfo *tasks, size_t task_count, const char *target_hash, const LeaseHistory *history) {
+static void assign_available_tasks(WorkerInfo *workers, int worker_count, TaskInfo *tasks, size_t task_count, const char *target_hash, const LeaseHistory *history, int show_adaptive_lease) {
 	for (int i = 0; i < worker_count; ++i) {
 		if (workers[i].state != IDLE || workers[i].fd < 0) {
 			continue;
@@ -669,7 +677,7 @@ static void assign_available_tasks(WorkerInfo *workers, int worker_count, TaskIn
 			break;
 		}
 		
-		if (assign_task(&workers[i], task, target_hash, history) != 0) {
+		if (assign_task(&workers[i], task, target_hash, history, show_adaptive_lease) != 0) {
 			fprintf(stderr, "Failed to assign task to Worker %s\n", workers[i].worker_id);
 		}
 		
@@ -686,13 +694,17 @@ static TaskInfo *find_task_by_id(TaskInfo *tasks, size_t task_count, int task_id
 	return NULL;
 }
 
-static uint64_t calculate_lease_duration(const TaskInfo *task, const LeaseHistory *history) {
+static uint64_t calculate_lease_duration(const TaskInfo *task, const LeaseHistory *history, int show_adaptive_lease) {
 	if (task == NULL || history == NULL) {
 		return LEASE_FALLBACK_MS;
 	}
 	
 	// No accepted completion history yet
 	if (history->total_candidates <= 0.0) {
+		if (show_adaptive_lease) {
+			printf("ADAPTIVE_LEASE: no samples yet; using fallback=%llu ms\n", (unsigned long long)LEASE_FALLBACK_MS);
+		}
+		
 		return LEASE_FALLBACK_MS;
 	}
 	
@@ -704,14 +716,34 @@ static uint64_t calculate_lease_duration(const TaskInfo *task, const LeaseHistor
 	double estimated_duration = average_ms_per_candidate * (double)candidate_count * LEASE_MULTIPLIER;
 	
 	// Apply minimum and maximum lease bounds
+	uint64_t lease_duration;
+	
+	// Apply minimum and maximum lease bounds
 	if (estimated_duration < (double)LEASE_MIN_MS) {
 		return LEASE_MIN_MS;
 	}
 	
 	if (estimated_duration > (double)LEASE_MAX_MS) {
 		return LEASE_MAX_MS;
+	} else {
+		return (uint64_t)(estimated_duration + 0.999);
 	}
-	return (uint64_t)(estimated_duration + 0.999);
+	if (show_adaptive_lease) {
+		printf(
+			"ADAPTIVE_LEASE: avg=%.4f ms/candidate, "
+			"next_task_candidates=%" PRIu64
+			", multiplier=%.1f, estimate=%.2f ms, "
+			"final=%" PRIu64 " ms\n",
+			average_ms_per_candidate,
+			candidate_count,
+			LEASE_MULTIPLIER,
+			estimated_duration,
+			lease_duration
+		);
+	}
+			
+	
+	return lease_duration;
 }
 
 
@@ -816,7 +848,7 @@ int main(int argc, char *argv[]) {
 	//int password_found = 0;
 	
 	// Distribute the initial tasks
-	assign_available_tasks(workers, cfg.worker_count, tasks, task_count, target_hash, &lease_history);
+	assign_available_tasks(workers, cfg.worker_count, tasks, task_count, target_hash, &lease_history, cfg.show_adaptive_lease);
 	
 	uint64_t sequence = 1;
 
@@ -1139,6 +1171,18 @@ int main(int argc, char *argv[]) {
 								
 					lease_history.total_completion_ms += (double)elapsed_ms;
 					lease_history.total_candidates += (double)candidate_count;
+					if (cfg.show_adaptive_lease) {
+						printf(
+							"ADAPTIVE_SAMPLE: task=%d elapsed=%" PRIu64
+							" ms candidates=%" PRIu64
+							" cumulative_avg=%.4f ms/candidate\n",
+							task_id,
+							elapsed_ms,
+							candidate_count,
+							lease_history.total_completion_ms / lease_history.total_candidates
+						);
+					}
+					
 				
 					task->state = TASK_COMPLETE;
 					
@@ -1226,7 +1270,7 @@ int main(int argc, char *argv[]) {
 		
 		// Give newly idle Workers the next pending tasks.
 		//if (!password_found) {
-			assign_available_tasks(workers, cfg.worker_count, tasks, task_count, target_hash, &lease_history);
+			assign_available_tasks(workers, cfg.worker_count, tasks, task_count, target_hash, &lease_history, cfg.show_adaptive_lease);
 		//}
 	}
 	

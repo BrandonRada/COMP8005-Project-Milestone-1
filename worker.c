@@ -29,6 +29,8 @@ typedef struct {
     	char worker_id[MAX_ID];
     	int heartbeat_ms;
     	int threads;
+    	int test_exit_after_assign;
+    	int test_duplicate_result;
 } WorkerConfig;
 
 typedef struct {
@@ -98,7 +100,9 @@ static void usage(const char *program) {
         	"  --id <worker-id>           Worker ID\n"
         	"  --heartbeat-ms <ms>        heartbeat interval\n"
         	"  --threads <count>	      number of pthreads (>=1)\n"
-        	"  --help                     show this help\n",
+        	"  --help                     show this help\n"
+        	"  --test-exit-after-assign  Exit after receiving an assignment (testing)\n"
+        	"  --test-duplicate-result  Send the first accepted result twice (testing)\n",
         	program
 	);
 }
@@ -136,12 +140,17 @@ static int parse_args(int argc, char *argv[], WorkerConfig *cfg) {
 				return -1;
 			}
 			
-			cfg->port = atoi(argv[++i]);
+			char *endptr;
+			errno = 0;
 			
-			if (cfg->port <= 0 || cfg->port > 65535) {
-				fprintf(stderr, "Invalid port\n (out of range)");
+			long port = strtol(argv[++i], &endptr, 10);
+			
+			if (errno != 0 || endptr == argv[i] || *endptr != '\0' || port <= 0 || port > 65535) {
+				fprintf(stderr, "Invalid port\n");
 				return -1;
 			}
+			cfg->port = (int)port;
+			
 			continue;
 		}
 		
@@ -164,12 +173,16 @@ static int parse_args(int argc, char *argv[], WorkerConfig *cfg) {
 				return -1;
 			}
 			
-			cfg->heartbeat_ms = atoi(argv[++i]);
+			char *endptr;
+			errno = 0;
 			
-			if (cfg->heartbeat_ms <= 0) {
+			long heartbeat = strtol(argv[++i], &endptr, 10);
+			
+			if (errno != 0 || endptr == argv[i] || *endptr != '\0' || heartbeat <= 0 || heartbeat > INT_MAX) {
 				fprintf(stderr, "Invalid heartbeat interval\n");
 				return -1;
 			}
+			cfg->heartbeat_ms = (int)heartbeat;
 			continue;
 		}
 		
@@ -179,14 +192,27 @@ static int parse_args(int argc, char *argv[], WorkerConfig *cfg) {
 				return -1;
 			}
 			
-			cfg->threads = atoi(argv[++i]);
+			char *endptr;
+			errno = 0;
 			
-			if (cfg->threads <= 0) {
-				fprintf(stderr, "Invalid thread amount\n");
+			long thread_count = strtol(argv[++i], &endptr, 10);
+			
+			if (errno != 0 || endptr == argv[i] || *endptr != '\0' || thread_count <= 0 || thread_count > INT_MAX) {
+				fprintf(stderr, "Invalid thread amount: %s\n", argv[i]);
 				return -1;
 			}
+			cfg->threads = (int)thread_count;
 			continue;
 		}
+		if (strcmp(argv[i], "--test-exit-after-assign") == 0) {
+			cfg->test_exit_after_assign = 1;
+			continue;
+		}
+		if (strcmp(argv[i], "--test-duplicate-result") == 0) {
+			cfg->test_duplicate_result = 1;
+			continue;
+		}
+		
 		
 		fprintf(stderr, "Unknown option: %s\n", argv[i]);
 		return -1;
@@ -491,6 +517,9 @@ static void destroy_search_state(SearchState *s) {
 int main(int argc, char *argv[]) {   
     	signal(SIGPIPE, SIG_IGN);
     	WorkerConfig cfg;
+    	
+    	int test_duplicate_done = 0;
+    	
 
 	if (parse_args(argc, argv, &cfg) != 0) {
 		usage(argv[0]);
@@ -561,6 +590,18 @@ int main(int argc, char *argv[]) {
 			fprintf(stderr, "ASSIGN is for Worker %s, not %s\n", assigned_worker, cfg.worker_id);
 			close(fd);
 			return 1;
+		}
+		// TEST: Simulate Worker failure after receiving an assignment
+		if (cfg.test_exit_after_assign) {
+			printf(
+				"event=TEST_FAILURE task=%d worker=%s lease=%s action=disconnect\n",
+				assignment.task_id,
+				cfg.worker_id,
+				assignment.lease_id
+			);
+			fflush(stdout);
+			close(fd);
+			return 0;
 		}
 		
 		strncpy(assignment.worker_id, assigned_worker, sizeof(assignment.worker_id) - 1);
@@ -824,6 +865,33 @@ int main(int argc, char *argv[]) {
 			);
 		
 		}
+		
+		// TEST: Send the same result again after the Controller accepted it
+		if (cfg.test_duplicate_result && !test_duplicate_done && valid_complete && strcmp(accepted, "yes") == 0) {
+			test_duplicate_done = 1;
+			printf(
+				"event=TEST_DUPLICATE task=%d worker=%s lease=%s\n",
+				assignment.task_id,
+				cfg.worker_id,
+				assignment.lease_id
+			);
+			
+			fflush(stdout);
+			
+			if (send_line(fd, message) != 0) {
+				perror("send duplicate result");
+				close(fd);
+				return 1;
+			}
+			printf("SEND_DUPLICATE %s", message);
+			if (recv_line(fd, line, sizeof(line)) < 0) {
+				perror("recv duplicate acknowledgement");
+				close(fd);
+				return 1;
+			}
+			printf("RECV_DUPLICATE %s", line);
+		}
+		
 		
 		free(threads);
 		free(args);
